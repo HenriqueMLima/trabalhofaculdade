@@ -1,9 +1,14 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, session
+from flask_cors import CORS
 import mysql.connector
 from mysql.connector import Error
 import bcrypt
 
 app = Flask(__name__)
+app.secret_key = 'chave secreta'  
+
+CORS(app)
+CORS(app, resources={r"/*": {"origins": "http://127.0.0.1:5500"}})
 
 # Configurações de conexão
 db_config = {
@@ -37,10 +42,8 @@ def check_password(stored_password, provided_password):
 
 @app.route('/login', methods=['POST'])
 def login():
-    """Verifica as credenciais do usuário e retorna um token de autenticação ou mensagem de erro."""
-    user_data = request.json
+    user_data = request.get_json()
     
-    # Verifica se os campos obrigatórios estão presentes
     if not user_data or 'email' not in user_data or 'senha' not in user_data:
         return jsonify({"message": "Email e senha são obrigatórios"}), 400
     
@@ -54,10 +57,10 @@ def login():
             cursor.execute("SELECT * FROM Usuario WHERE Email = %s", (email,))
             user = cursor.fetchone()
             
-            # Adiciona mensagem de depuração
-            print(f"Usuário encontrado: {user}")
-            
-            if user and check_password(user['Senha'], senha):
+            if user and bcrypt.checkpw(senha.encode('utf-8'), user['Senha'].encode('utf-8')):
+                # Login bem-sucedido, salva informações na sessão
+                session['user_id'] = user['ID']
+                session['user_name'] = user['Nome']
                 return jsonify({"message": "Login bem-sucedido!"}), 200
             else:
                 return jsonify({"message": "Credenciais inválidas"}), 401
@@ -84,7 +87,8 @@ def register():
     email = user_data['email']
     senha = user_data['senha']
     
-   
+    # Hash da senha com bcrypt
+    hashed_senha = bcrypt.hashpw(senha.encode('utf-8'), bcrypt.gensalt())
     
     try:
         connection = create_connection()
@@ -103,6 +107,7 @@ def register():
                 INSERT INTO Usuario (Nome, Email, Senha) 
                 VALUES (%s, %s, %s)
             """
+            cursor.execute(insert_query, (nome, email, hashed_senha))
             connection.commit()
             
             return jsonify({"message": "Usuário cadastrado com sucesso!"}), 201
@@ -116,40 +121,46 @@ def register():
             cursor.close()
             connection.close()
             
-@app.route('/users', methods=['GET'])
-def get_users():
-    """Retorna todos os usuários ou um usuário específico baseado no ID fornecido."""
-    user_id = request.args.get('id')
+@app.route('/artigos', methods=['POST'])
+def cadastrar_artigo():
+    # Verifica se o usuário está autenticado
+    if 'user_id' not in session:
+        return jsonify({"message": "Você precisa estar autenticado para cadastrar um artigo"}), 401
     
+    artigo_data = request.json
+    
+    # Validação de entrada
+    if not artigo_data or not artigo_data.get('titulo') or not artigo_data.get('conteudo') or not artigo_data.get('categoria'):
+        return jsonify({"message": "Título, conteúdo e categoria são obrigatórios"}), 400
+    
+    titulo = artigo_data['titulo']
+    conteudo = artigo_data['conteudo']
+    categoria = artigo_data['categoria']
+    user_id = session['user_id']  # Pega o ID do usuário logado da sessão
+
     try:
         connection = create_connection()
         if connection:
-            cursor = connection.cursor(dictionary=True)
+            cursor = connection.cursor()
             
-            if user_id:
-                # Consulta para um usuário específico
-                cursor.execute("SELECT * FROM Usuario WHERE ID = %s", (user_id,))
-            else:
-                # Consulta para todos os usuários
-                cursor.execute("SELECT * FROM Usuario")
+            # Insere o novo artigo no banco de dados A
+            insert_query = """
+                INSERT INTO Artigos (Titulo, Conteudo, Categoria, Autor_ID, Data_Publicacao) 
+                VALUES (%s, %s, %s, %s, NOW())
+            """
+            cursor.execute(insert_query, (titulo, conteudo, categoria, user_id))
+            connection.commit()
             
-            users = cursor.fetchall()
-            
-            if users:
-                return jsonify(users), 200
-            else:
-                return jsonify({"message": "Nenhum usuário encontrado"}), 404
+            return jsonify({"message": "Artigo cadastrado com sucesso!"}), 201
         else:
             return jsonify({"message": "Erro ao conectar ao banco de dados"}), 500
     except Error as e:
-        print(f"Erro ao consultar usuários: {e}")
-        return jsonify({"message": f"Erro ao consultar usuários: {str(e)}"}), 500
+        print(f"Erro ao cadastrar artigo: {e}")
+        return jsonify({"message": "Erro ao cadastrar artigo"}), 500
     finally:
         if connection and connection.is_connected():
             cursor.close()
             connection.close()
-            
-            
+
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5000)
-
