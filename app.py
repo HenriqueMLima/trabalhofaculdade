@@ -5,7 +5,7 @@ from mysql.connector import Error
 import bcrypt
 
 app = Flask(__name__)
-app.secret_key = 'chave secreta'  
+app.secret_key = 'qCHoCA0U1IOgBOqZFCCZ9GJt3ce8aZnS'  
 
 CORS(app)
 CORS(app, resources={r"/*": {"origins": "http://127.0.0.1:5500"}})
@@ -121,42 +121,67 @@ def register():
             cursor.close()
             connection.close()
             
-@app.route('/artigos', methods=['POST'])
-def cadastrar_artigo():
+@app.route('/projeto', methods=['POST'])
+def cadastrar_projeto():
+    """Cadastra um novo projeto. O usuário precisa estar autenticado."""
+    
     # Verifica se o usuário está autenticado
     if 'user_id' not in session:
-        return jsonify({"message": "Você precisa estar autenticado para cadastrar um artigo"}), 401
+        return jsonify({"message": "Você precisa estar autenticado para cadastrar um projeto"}), 401
     
-    artigo_data = request.json
+    user_id = session['user_id']
+    projeto_data = request.json
     
     # Validação de entrada
-    if not artigo_data or not artigo_data.get('titulo') or not artigo_data.get('conteudo') or not artigo_data.get('categoria'):
-        return jsonify({"message": "Título, conteúdo e categoria são obrigatórios"}), 400
+    if not projeto_data or not projeto_data.get('nome') or not projeto_data.get('descricao'):
+        return jsonify({"message": "Nome e descrição do projeto são obrigatórios"}), 400
     
-    titulo = artigo_data['titulo']
-    conteudo = artigo_data['conteudo']
-    categoria = artigo_data['categoria']
-    user_id = session['user_id']  # Pega o ID do usuário logado da sessão
-
+    nome = projeto_data['nome']
+    descricao = projeto_data['descricao']
+    
     try:
         connection = create_connection()
         if connection:
             cursor = connection.cursor()
             
-            # Insere o novo artigo no banco de dados A
+            # Insere projeto no banco de dados
             insert_query = """
-                INSERT INTO Artigos (Titulo, Conteudo, Categoria, Autor_ID, Data_Publicacao) 
-                VALUES (%s, %s, %s, %s, NOW())
+                INSERT INTO Projeto (Nome, Descricao, Usuario_ID) 
+                VALUES (%s, %s, %s)
             """
-            cursor.execute(insert_query, (titulo, conteudo, categoria, user_id))
+            cursor.execute(insert_query, (nome, descricao, user_id))
             connection.commit()
             
-            return jsonify({"message": "Artigo cadastrado com sucesso!"}), 201
+            return jsonify({"message": "Projeto cadastrado com sucesso!"}), 201
         else:
             return jsonify({"message": "Erro ao conectar ao banco de dados"}), 500
     except Error as e:
-        print(f"Erro ao cadastrar artigo: {e}")
-        return jsonify({"message": "Erro ao cadastrar artigo"}), 500
+        print(f"Erro ao cadastrar projeto: {e}")
+        return jsonify({"message": "Erro ao cadastrar projeto"}), 500
+    finally:
+        if connection and connection.is_connected():
+            cursor.close()
+            connection.close()
+            
+
+@app.route('/projetos', methods=['GET'])
+def listar_projetos():
+    try:
+        connection = create_connection()
+        if connection:
+            cursor = connection.cursor(dictionary=True)
+            
+            # Seleciona todos os projetos no banco de dados
+            select_query = "SELECT * FROM Projeto"
+            cursor.execute(select_query)
+            projetos = cursor.fetchall()
+            
+            return jsonify(projetos), 200
+        else:
+            return jsonify({"message": "Erro ao conectar ao banco de dados"}), 500
+    except Error as e:
+        print(f"Erro ao listar projetos: {e}")
+        return jsonify({"message": "Erro ao listar projetos"}), 500
     finally:
         if connection and connection.is_connected():
             cursor.close()
