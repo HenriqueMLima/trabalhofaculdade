@@ -41,7 +41,7 @@ def check_password(stored_password, provided_password):
     return bcrypt.checkpw(provided_password.encode('utf-8'), stored_password.encode('utf-8'))
 
 @app.route('/login', methods=['POST'])
-def login():
+def user_login():
     user_data = request.get_json()
     
     if not user_data or 'email' not in user_data or 'senha' not in user_data:
@@ -56,10 +56,16 @@ def login():
             cursor = connection.cursor(dictionary=True)
             cursor.execute("SELECT * FROM Usuario WHERE Email = %s", (email,))
             user = cursor.fetchone()
+            print(user)  
             
-            if user and bcrypt.checkpw(senha.encode('utf-8'), user['Senha'].encode('utf-8')):
-                # Login bem-sucedido, salva informações na sessão
-                session['user_id'] = user['ID']
+            if user is None:
+                return jsonify({"message": "Usuário não encontrado"}), 404
+            
+            # Tenta acessar 'Id_usuario' e, se não existir, tenta 'id_usuario'
+            user_id = user.get('ID_Usuario') or user.get('id_usuario')
+            
+            if bcrypt.checkpw(senha.encode('utf-8'), user['Senha'].encode('utf-8')):
+                session['user_id'] = user_id
                 session['user_name'] = user['Nome']
                 return jsonify({"message": "Login bem-sucedido!"}), 200
             else:
@@ -123,33 +129,31 @@ def register():
             
 @app.route('/projeto', methods=['POST'])
 def cadastrar_projeto():
-    """Cadastra um novo projeto. O usuário precisa estar autenticado."""
-    
-    # Verifica se o usuário está autenticado
+    # Verificar se o usuário está autenticado
     if 'user_id' not in session:
         return jsonify({"message": "Você precisa estar autenticado para cadastrar um projeto"}), 401
-    
-    user_id = session['user_id']
+
+    # Receber os dados do projeto do cliente
     projeto_data = request.json
-    
-    # Validação de entrada
-    if not projeto_data or not projeto_data.get('nome') or not projeto_data.get('descricao'):
-        return jsonify({"message": "Nome e descrição do projeto são obrigatórios"}), 400
-    
-    nome = projeto_data['nome']
-    descricao = projeto_data['descricao']
-    
+    nome = projeto_data.get('nome')
+    descricao = projeto_data.get('descricao')
+    id_categoria = projeto_data.get('id_categoria')  
+
+    # Verificar se todos os campos necessários foram fornecidos
+    if not nome or not descricao:
+        return jsonify({"message": "Nome e descrição são obrigatórios"}), 400
+
     try:
         connection = create_connection()
         if connection:
             cursor = connection.cursor()
             
-            # Insere projeto no banco de dados
+            # Inserir o projeto no banco de dados associado ao usuário logado
             insert_query = """
-                INSERT INTO Projeto (Nome, Descricao, Usuario_ID) 
-                VALUES (%s, %s, %s)
+                INSERT INTO Projeto (Nome, Descricao, ID_Categoria, Id_usuario)
+                VALUES (%s, %s, %s, %s)
             """
-            cursor.execute(insert_query, (nome, descricao, user_id))
+            cursor.execute(insert_query, (nome, descricao, id_categoria, session['user_id']))
             connection.commit()
             
             return jsonify({"message": "Projeto cadastrado com sucesso!"}), 201
